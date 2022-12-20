@@ -1,30 +1,74 @@
 use anyhow::anyhow;
-use rss::Channel;
+use chrono::{DateTime, TimeZone, Utc};
+use rss::{Channel, Item};
 
+#[derive(Debug)]
+pub struct FeedLink(String);
+
+impl FeedLink {
+    pub fn get(&self) -> &str {
+        &self.0.as_str()
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub enum FeedType {
     Rss,
 }
 
+#[derive(Debug)]
 pub struct Feed {
-    pub channel: Channel,
+    pub link: FeedLink,
     pub feed_type: FeedType,
+    pub last_read: Option<DateTime<Utc>>,
 }
 
 impl Feed {
     pub async fn new(input_link: String) -> Result<Self, anyhow::Error> {
         let content = reqwest::get(input_link.clone()).await?.bytes().await?;
         match Channel::read_from(&content[..]) {
-            Ok(channel) => Ok(Self {
-                channel,
+            Ok(_) => Ok(Self {
+                link: FeedLink(input_link),
                 feed_type: FeedType::Rss,
+                last_read: None,
             }),
             Err(_) => Err(anyhow!("Error creating a feed from this url")),
         }
+    }
+
+    pub async fn get_unread_items(&mut self) -> Result<Vec<Item>, anyhow::Error> {
+        let content = reqwest::get(self.link.get()).await?.bytes().await?;
+        let channel = Channel::read_from(&content[..])?;
+
+        let mut unread_items = vec![];
+        for item in channel.items() {
+            match item.pub_date() {
+                Some(pub_date) => match DateTime::parse_from_rfc2822(pub_date) {
+                    Ok(pub_date) => {
+                        let pub_date = DateTime::<Utc>::from(pub_date);
+                        match self.last_read {
+                            Some(last_read) if pub_date > last_read => {
+                                unread_items.push(item.clone())
+                            }
+                            None => unread_items.push(item.clone()),
+                            _ => (),
+                        }
+                    }
+                    Err(_) => return Err(anyhow!("Error parsing publication date")),
+                },
+                None => unread_items.push(item.clone()),
+            }
+        }
+        self.last_read = Some(Utc::now());
+
+        Ok(unread_items)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::feed::FeedType;
+
     use super::Feed;
 
     #[tokio::test]
@@ -33,6 +77,20 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(feed.channel.title(), "The Apology Line");
+        assert_eq!(feed.link.get(), "https://rss.art19.com/apology-line");
+        assert_eq!(feed.last_read, None);
+        assert_eq!(feed.feed_type, FeedType::Rss);
+    }
+
+    #[tokio::test]
+    async fn fetch_unred_items() {
+        let mut feed = Feed::new("https://rss.art19.com/apology-line".to_owned())
+            .await
+            .unwrap();
+
+        let unread_items = feed.get_unread_items().await.unwrap();
+        assert_eq!(unread_items.len(), 2);
+        let unread_items = feed.get_unread_items().await.unwrap();
+        assert_eq!(unread_items.len(), 0);
     }
 }
