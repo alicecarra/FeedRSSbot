@@ -14,3 +14,10 @@ reqwest = { version = "0.11", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 chrono = "0.4"
+
+teloxide = { version="0.11.1", features=["redis-storage", "sqlite-storage", "macros"] }
+teloxide-core = "0.8.0"
+pretty_env_logger = "0.4.0"
+log = "0.4"
+dotenv = "0.15.0"
+regex = "1.7.0"

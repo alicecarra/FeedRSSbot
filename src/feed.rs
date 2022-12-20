@@ -1,13 +1,13 @@
 use anyhow::anyhow;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use rss::{Channel, Item};
 
 #[derive(Debug)]
-pub struct FeedLink(String);
+pub struct FeedUrl(String);
 
-impl FeedLink {
+impl FeedUrl {
     pub fn get(&self) -> &str {
-        &self.0.as_str()
+        self.0.as_str()
     }
 }
 
@@ -18,17 +18,17 @@ pub enum FeedType {
 
 #[derive(Debug)]
 pub struct Feed {
-    pub link: FeedLink,
+    pub url: FeedUrl,
     pub feed_type: FeedType,
     pub last_read: Option<DateTime<Utc>>,
 }
 
 impl Feed {
-    pub async fn new(input_link: String) -> Result<Self, anyhow::Error> {
-        let content = reqwest::get(input_link.clone()).await?.bytes().await?;
+    pub async fn new(input_url: String) -> Result<Self, anyhow::Error> {
+        let content = reqwest::get(input_url.clone()).await?.bytes().await?;
         match Channel::read_from(&content[..]) {
             Ok(_) => Ok(Self {
-                link: FeedLink(input_link),
+                url: FeedUrl(input_url),
                 feed_type: FeedType::Rss,
                 last_read: None,
             }),
@@ -37,7 +37,7 @@ impl Feed {
     }
 
     pub async fn get_unread_items(&mut self) -> Result<Vec<Item>, anyhow::Error> {
-        let content = reqwest::get(self.link.get()).await?.bytes().await?;
+        let content = reqwest::get(self.url.get()).await?.bytes().await?;
         let channel = Channel::read_from(&content[..])?;
 
         let mut unread_items = vec![];
@@ -77,7 +77,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(feed.link.get(), "https://rss.art19.com/apology-line");
+        assert_eq!(feed.url.get(), "https://rss.art19.com/apology-line");
         assert_eq!(feed.last_read, None);
         assert_eq!(feed.feed_type, FeedType::Rss);
     }
