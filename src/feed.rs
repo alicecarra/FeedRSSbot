@@ -1,8 +1,9 @@
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use rss::{Channel, Item};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedUrl(String);
 
 impl FeedUrl {
@@ -11,12 +12,12 @@ impl FeedUrl {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub enum FeedType {
     Rss,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Feed {
     pub url: FeedUrl,
     pub feed_type: FeedType,
@@ -36,29 +37,43 @@ impl Feed {
         }
     }
 
-    pub async fn get_unread_items(&mut self) -> Result<Vec<Item>, anyhow::Error> {
+    pub async fn get_items(&mut self) -> Result<Vec<Item>, anyhow::Error> {
         let content = reqwest::get(self.url.get()).await?.bytes().await?;
         let channel = Channel::read_from(&content[..])?;
 
-        let mut unread_items = vec![];
+        let mut items = vec![];
+
         for item in channel.items() {
-            match item.pub_date() {
+            items.push(item.clone())
+        }
+
+        Ok(items)
+    }
+
+    pub async fn get_unread_items(&mut self) -> Result<Vec<Item>, anyhow::Error> {
+        let unread_items = self.get_items().await?;
+
+        let unread_items = unread_items
+            .iter()
+            .filter(|&item| match item.pub_date() {
                 Some(pub_date) => match DateTime::parse_from_rfc2822(pub_date) {
                     Ok(pub_date) => {
                         let pub_date = DateTime::<Utc>::from(pub_date);
+                        println!("pub date: {:#?}", pub_date);
+                        println!("last read: {:#?}", self.last_read);
                         match self.last_read {
-                            Some(last_read) if pub_date > last_read => {
-                                unread_items.push(item.clone())
-                            }
-                            None => unread_items.push(item.clone()),
-                            _ => (),
+                            Some(last_read) if pub_date > last_read => true,
+                            None => true,
+                            _ => false,
                         }
                     }
-                    Err(_) => return Err(anyhow!("Error parsing publication date")),
+                    Err(_) => true,
                 },
-                None => unread_items.push(item.clone()),
-            }
-        }
+                None => true,
+            })
+            .cloned()
+            .collect();
+
         self.last_read = Some(Utc::now());
 
         Ok(unread_items)
